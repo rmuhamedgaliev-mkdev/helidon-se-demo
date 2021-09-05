@@ -3,12 +3,56 @@
  */
 package dev.rmuhamedgaliev;
 
+import io.helidon.config.Config;
+import io.helidon.health.HealthSupport;
+import io.helidon.health.checks.HealthChecks;
+import io.helidon.media.jackson.JacksonSupport;
+import io.helidon.metrics.MetricsSupport;
+import io.helidon.webserver.Routing;
+import io.helidon.webserver.WebServer;
+
 public class App {
-    public String getGreeting() {
-        return "Hello World!";
-    }
 
     public static void main(String[] args) {
-        System.out.println(new App().getGreeting());
+
+//        Инициализируем конфигурацию из файла resources/application.yaml
+        Config config = Config.create();
+
+//        Создаеем эксземпляр сервера и передаем конфигурацию
+        WebServer server = WebServer.builder(createRouting())
+                .config(config.get("server"))
+                .addMediaSupport(JacksonSupport.create())
+                .build();
+
+//        Запускаем сервер и выводим информацию о адресе, где запущен сервер
+        server.start().thenAccept(ws -> {
+                    System.out.println("WEB server is up! http://localhost:" + ws.port() + "/time");
+                    ws.whenShutdown().thenRun(() -> System.out.println("WEB server is DOWN. Good bye!"));
+                })
+                .exceptionallyAccept(t -> {
+                    System.err.println("Startup failed: " + t.getMessage());
+                    t.printStackTrace(System.err);
+                });
+    }
+
+    //    Делаем роутинг для обращения
+    private static Routing createRouting() {
+
+//        Добавляем сервис который дает информацию о системе - память и прочее
+        HealthSupport health = HealthSupport.builder()
+                .addLiveness(HealthChecks.healthChecks())
+                .build();
+
+//        Включем мониторинг метрик нашего сервера
+        MetricsSupport metrics = MetricsSupport.create();
+
+//        Берем инстанс нашего сервиса предоставляющего время
+        TimeService timeService = new TimeService();
+
+        return Routing.builder()
+                .register(health)
+                .register(metrics)
+                .register("/time", timeService)
+                .build();
     }
 }
